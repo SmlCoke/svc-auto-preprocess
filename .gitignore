@@ -1,0 +1,7 @@
+# 模型权重文件
+.pth
+
+
+__pycache__/
+*.log
+.env
