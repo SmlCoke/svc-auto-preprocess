@@ -28,6 +28,10 @@
    # VR 模型
    wget -P ./ "https://huggingface.co/Eddycrack864/audio-separator-models/resolve/main/vr-arch/5_HP-Karaoke-UVR.pth"
    ```
+6. 然后运行即可
+   ```bash
+   python auto_process.py
+   ```
 
 ## 设备环境
 - 推荐使用 RTX 4090 或更高的显卡，VR 模型在 RTX 5090 上表现更佳
