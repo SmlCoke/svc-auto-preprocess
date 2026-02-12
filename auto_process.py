@@ -9,17 +9,19 @@ from tqdm import tqdm
 
 # ================= 配置区域 =================
 # 输入音频所在的文件夹
-INPUT_DIR = Path("/root/autodl-tmp/anime_process/source")
+INPUT_DIR = Path("D:\\Project\\svc\\svc-data\\K-ON\\Main-Vocal\\K-ON-ONE\\dataset_slices\\2-第2话-乐器")
 # 输出结果的文件夹
-OUTPUT_DIR = Path("/root/autodl-tmp/anime_process/dataset_slices")
+OUTPUT_DIR = Path("D:\\Project\\svc\\svc-data\\K-ON\\Main-Vocal\\K-ON-ONE\\dataset_slices\\2-第2话-乐器-new")
 # 临时文件夹
-TEMP_DIR = Path("/root/autodl-tmp/anime_process/temp_work")
+TEMP_DIR = Path("D:\\Project\\svc\\svc-data\\K-ON\\Main-Vocal\\K-ON-ONE\\temp")
 
 # --- 模型路径 ---
 # 第一步：MDX 模型 (去主要伴奏)
-MODEL_PATH_MDX = Path("/root/autodl-tmp/anime_process/uvr_models/UVR-MDX-NET-Inst_HQ_5.onnx")
+MODEL_PATH_MDX = Path("D:\\Project\\svc\\software\\Ultimate-Vocal-Remover\\Ultimate Vocal Remover\\models\\MDX_Net_Models\\UVR-MDX-NET-Inst_HQ_5.onnx")
 # 第二步：VR 模型 (去残留和声/杂音)
-MODEL_PATH_VR = Path("/root/autodl-tmp/anime_process/uvr_models/5_HP-Karaoke-UVR.pth")
+MODEL_PATH_VR = Path("D:\\Project\\svc\\software\\Ultimate-Vocal-Remover\\Ultimate Vocal Remover\\models\\VR_Models\\5_HP-Karaoke-UVR.pth")
+# 是否采用强力模式（再执行一轮 VR + MDX）
+Power = False 
 
 # 切片参数
 MIN_LEN = 2000      # 最小长度 (ms)
@@ -151,22 +153,33 @@ def main():
             # --- 步骤 1: MDX 去伴奏 ---
             # 输出会包含 (Vocals)_MDX...
             step1_wav = run_separator(source_wav, TEMP_DIR, MODEL_PATH_MDX)
-            
-            # 重命名一下方便管理 (可选，防止文件名过长)
-            step1_clean = TEMP_DIR / "01_mdx_out.wav"
-            shutil.move(step1_wav, step1_clean)
 
             # --- 步骤 2: VR 去杂音 (输入是步骤1的产物) ---
-            step2_wav = run_separator(step1_clean, TEMP_DIR, MODEL_PATH_VR)
+            step2_wav = run_separator(step1_wav, TEMP_DIR, MODEL_PATH_VR)
 
-            # --- 步骤 3: 切片 (输入是步骤2的产物) ---
-            slice_audio(step2_wav, final_slice_dir)
+            if not Power:
+                # --- 步骤 3: 切片 (输入是步骤2的产物) ---
+                slice_audio(step2_wav, final_slice_dir)
+            else:
+                # --- 步骤 3: VR 再次去杂音 (输入是步骤2的产物) ---
+                step3_wav = run_separator(step2_wav, TEMP_DIR, MODEL_PATH_VR)
+
+                # --- 步骤 4: MDX 再次去伴奏 (输入是步骤3的产物) ---
+                step4_wav = run_separator(step3_wav, TEMP_DIR, MODEL_PATH_MDX)
+
+                # --- 步骤 5: 切片 (输入是步骤4的产物) ---
+                slice_audio(step4_wav, final_slice_dir)
+
+                # 清理中间产物
+                step3_wav.unlink(missing_ok=True)
+                step4_wav.unlink(missing_ok=True)
 
             # --- 清理当前文件的中间产物 (重要！省空间) ---
             # 处理完一个删一个
             source_wav.unlink(missing_ok=True)
-            step1_clean.unlink(missing_ok=True)
+            step1_wav.unlink(missing_ok=True)
             step2_wav.unlink(missing_ok=True)
+           
 
         except Exception as e:
             logging.error(f"处理文件 {audio_file.name} 时发生错误: {e}")
