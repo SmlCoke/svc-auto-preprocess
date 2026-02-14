@@ -26,7 +26,7 @@ Power = False
 # 切片参数
 MIN_LEN = 2000      # 最小长度 (ms)
 MAX_LEN = 15000     # 最大长度 (ms)
-SILENCE_THRESH = -40 # 静音阈值 (dB)
+SILENCE_THRESH = -50 # 静音阈值 (dB)
 # ===========================================
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -100,16 +100,40 @@ def run_separator(input_wav, output_dir, model_path):
 def slice_audio(vocal_path, target_folder):
     logging.info(f"正在切片: {vocal_path.name}")
     audio, sr = librosa.load(vocal_path, sr=None)
+    
+    # 调整这个阈值！如果切得太突然，可能是因为这个值太高了
+    # -40dB 可能把一些轻声细语当成静音切掉了，建议尝试 -50 或 -60
+    # 但是对于去伴奏不够完美的素材，设太低会导致切不开
     non_silent_intervals = librosa.effects.split(audio, top_db=-SILENCE_THRESH)
     
     count = 0
+    
+    # === 新增：定义淡入淡出长度 (比如 10ms) ===
+    fade_len = int(sr * 0.01) 
+    # =======================================
+
     for start, end in non_silent_intervals:
         duration_ms = (end - start) / sr * 1000
+        
+        # 恢复到 2000ms 或 3000ms，不要用 5000ms
         if duration_ms < MIN_LEN:
             continue
+            
+        # 提取音频
         audio_slice = audio[start:end]
+        
+        # === 新增：应用淡入淡出 (防止爆音) ===
+        # 如果切片比淡入淡出长度还短（极少见），就不处理，防止报错
+        if len(audio_slice) > fade_len * 2:
+            # 淡入
+            audio_slice[:fade_len] *= np.linspace(0, 1, fade_len)
+            # 淡出
+            audio_slice[-fade_len:] *= np.linspace(1, 0, fade_len)
+        # ===================================
+
         slice_name = f"{target_folder.name}_{count:03d}.wav"
         save_path = target_folder / slice_name
+        
         sf.write(save_path, audio_slice, sr)
         count += 1
     
