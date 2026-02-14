@@ -103,8 +103,9 @@ def main():
         logging.error(f"模型文件缺失，请检查路径:\nMDX: {MODEL_PATH_MDX}\nVR: {MODEL_PATH_VR}")
         return
 
-    audio_files = sorted([f for f in INPUT_DIR.iterdir() if f.suffix.lower() == ".wav"])
-    
+    # audio_files = sorted([f for f in INPUT_DIR.iterdir() if f.suffix.lower() == ".wav"])
+    audio_files = sorted(INPUT_DIR.rglob("*.wav"))
+
     print(f"检测到 {len(audio_files)} 个文件，开始两阶段处理 (MDX -> VR)...")
     print("-" * 50)
 
