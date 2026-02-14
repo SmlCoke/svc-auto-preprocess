@@ -8,18 +8,18 @@ from pathlib import Path
 
 # ================= 配置区域 =================
 # 1. 你的“参考音频”文件夹 (存放确认是目标角色的干声，10-20个即可)
-REF_DIR = Path("/root/autodl-tmp/ref_audio")
+REF_DIR = Path("./yui")
 
 # 2. 待筛选的“新切片”文件夹 (刚才脚本生成的 dataset_slices 目录)
 # 注意：脚本会遍历这个目录下的所有子文件夹
-INPUT_DIR = Path("/root/autodl-tmp/anime_process/dataset_slices")
+INPUT_DIR = Path("./result/3-第3话-特训/")
 
 # 3. 输出目录
-OUTPUT_BASE = Path("/root/autodl-tmp/anime_process/filter_result")
+OUTPUT_BASE = Path("./result_classification/")
 
 # 4. 阈值设置 (分数范围通常在 0 ~ 1 之间)
 # 大于此值：直接保留 (High Confidence)
-THRESH_KEEP = 0.35  
+THRESH_KEEP = 0.4  
 # 小于此值但大于垃圾阈值：人工复核 (Unsure)
 THRESH_REVIEW = 0.20
 # 小于 0.20：直接认为是垃圾/杂音/其他人
@@ -41,12 +41,21 @@ def load_model():
 def get_embedding(model, wav_path):
     """提取单个音频的声纹向量"""
     signal, fs = torchaudio.load(wav_path)
-    # ECAPA-TDNN 需要 16k 采样率，如果不是则重采样 (SpeechBrain 内部通常会自动处理，但显式处理更稳)
+    
+    # === 修复：强制转为单声道 ===
+    # signal 的形状通常是 [Channel, Time]
+    # 如果通道数 > 1 (比如立体声), 对通道维度求平均
+    if signal.shape[0] > 1:
+        signal = signal.mean(dim=0, keepdim=True)
+    # ===========================
+
+    # ECAPA-TDNN 需要 16k 采样率
     if fs != 16000:
-        resampler = torchaudio.transforms.Resample(fs, 16000)
+        resampler = torchaudio.transforms.Resample(fs, 16000).to(signal.device) # 确保设备一致
         signal = resampler(signal)
     
     # 提取 Embedding
+    # 此时 signal 形状一定是 [1, N]，输出一定是 [1, 1, 192]
     embedding = model.encode_batch(signal)
     return embedding
 
@@ -103,7 +112,7 @@ def main():
             duration = info.num_frames / info.sample_rate
             if duration < 0.5:
                 # 太短的直接扔进 Review 或 Trash
-                shutil.move(str(wav_file), str(dir_trash / wav_file.name))
+                shutil.copy2(str(wav_file), str(dir_trash / wav_file.name))
                 continue
 
             current_emb = get_embedding(verification, wav_file)
@@ -120,8 +129,8 @@ def main():
             else:
                 dest = dir_trash
             
-            # 移动文件 (保留原始文件名，如果重名则自动处理)
-            shutil.move(str(wav_file), str(dest / wav_file.name))
+            # 复制文件 (保留原始文件名，如果重名则自动处理)
+            shutil.copy2(str(wav_file), str(dest / wav_file.name))
             
             # (可选) 打印调试信息，看分数分布
             # print(f"{wav_file.name}: {score:.4f} -> {dest.name}")
@@ -129,7 +138,7 @@ def main():
         except Exception as e:
             print(f"处理出错 {wav_file.name}: {e}")
             # 出错的文件扔进 Review
-            shutil.move(str(wav_file), str(dir_review / wav_file.name))
+            shutil.copy2(str(wav_file), str(dir_review / wav_file.name))
 
     print("-" * 50)
     print("筛选完成！统计结果：")
