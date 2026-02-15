@@ -8,26 +8,29 @@ from pathlib import Path
 
 # ================= 配置区域 =================
 # 1. 你的“参考音频”文件夹 (存放确认是目标角色的干声，10-20个即可)
-REF_DIR = Path("./yui")
+TV_DIR = Path("./yui-tv")
+SONG_DIR = Path("./yui-song")
 
 # 2. 待筛选的“新切片”文件夹 (刚才脚本生成的 dataset_slices 目录)
 # 注意：脚本会遍历这个目录下的所有子文件夹
-INPUT_DIR = Path("./result/3-第3话-特训/")
+INPUT_DIR = Path("./K-ON-ONE-smooth-power/")
 
 # 3. 输出目录
 OUTPUT_BASE = Path("./result_classification/")
 
 # 4. 阈值设置 (分数范围通常在 0 ~ 1 之间)
 # 大于此值：直接保留 (High Confidence)
-THRESH_KEEP = 0.4  
+THRESH_KEEP_TV = 0.649
+THRESH_KEEP_SONG = 0.574
+
 # 小于此值但大于垃圾阈值：人工复核 (Unsure)
 THRESH_REVIEW = 0.20
 # 小于 0.20：直接认为是垃圾/杂音/其他人
 
 # ===========================================
 
-def write_log(log_file, filename, score):
-    log_file.write(f"{filename}: {score:.6f}\n")
+def write_log(log_file, filename, score_tv, score_song):
+    log_file.write(f"{filename}: TV得分: {score_tv:.6f}, 歌曲得分: {score_song:.6f}\n")
     log_file.flush()
 
 def load_model():
@@ -103,7 +106,8 @@ def main():
     verification = load_model()
 
     # 2. 获取目标角色的声纹指纹
-    target_emb = compute_reference_embedding(verification, REF_DIR)
+    target_emb_tv = compute_reference_embedding(verification, TV_DIR)
+    target_emb_song = compute_reference_embedding(verification, SONG_DIR)
     print("参考声纹提取完毕。开始大规模筛选...")
 
     # 3. 遍历待筛选文件
@@ -124,17 +128,18 @@ def main():
 
                 # 计算相似度 (Cosine Similarity)
                 # score 是一个 tensor，取 .item() 拿数值
-                score = torch.nn.functional.cosine_similarity(target_emb, current_emb, dim=-1).mean().item()
+                score_tv = torch.nn.functional.cosine_similarity(target_emb_tv, current_emb, dim=-1).mean().item()
+                score_song = torch.nn.functional.cosine_similarity(target_emb_song, current_emb, dim=-1).mean().item()
 
                 # 决策移动
-                if duration < 0.5:
+                if duration < 0.5 or duration > 15:
                     # 太短片段直接归类为 Trash，但仍记录分数
                     dest = dir_trash
                     current_log = log_trash
-                elif score >= THRESH_KEEP:
+                elif score_tv >= THRESH_KEEP_TV and score_song >= THRESH_KEEP_SONG:
                     dest = dir_keep
                     current_log = log_keep
-                elif score >= THRESH_REVIEW:
+                elif score_tv >= THRESH_KEEP_TV or score_song >= THRESH_KEEP_SONG:
                     dest = dir_review
                     current_log = log_review
                 else:
@@ -145,7 +150,7 @@ def main():
                 shutil.copy2(str(wav_file), str(dest / wav_file.name))
 
                 # 记录日志：文件名字: 分数
-                write_log(current_log, wav_file.name, score)
+                write_log(current_log, wav_file.name, score_tv, score_song)
 
             except Exception as e:
                 print(f"处理出错 {wav_file.name}: {e}")
