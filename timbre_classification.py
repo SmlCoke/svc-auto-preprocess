@@ -26,6 +26,10 @@ THRESH_REVIEW = 0.20
 
 # ===========================================
 
+def write_log(log_file, filename, score):
+    log_file.write(f"{filename}: {score:.6f}\n")
+    log_file.flush()
+
 def load_model():
     print("正在加载 ECAPA-TDNN 模型...")
     # 自动使用 GPU
@@ -88,6 +92,9 @@ def main():
     dir_keep = OUTPUT_BASE / "1_Keep"
     dir_review = OUTPUT_BASE / "2_Review"
     dir_trash = OUTPUT_BASE / "3_Trash"
+    log_keep_path = OUTPUT_BASE / "keep.log"
+    log_review_path = OUTPUT_BASE / "review.log"
+    log_trash_path = OUTPUT_BASE / "trash.log"
     
     for d in [dir_keep, dir_review, dir_trash]:
         d.mkdir(parents=True, exist_ok=True)
@@ -104,41 +111,47 @@ def main():
     candidates = list(INPUT_DIR.rglob("*.wav"))
     print(f"共找到 {len(candidates)} 个待筛选切片。")
 
-    for wav_file in tqdm(candidates):
-        try:
-            # 提取当前切片的声纹
-            # 注意：太短的音频（<0.5s）可能会报错或极其不准
-            info = torchaudio.info(str(wav_file))
-            duration = info.num_frames / info.sample_rate
-            if duration < 0.5:
-                # 太短的直接扔进 Review 或 Trash
-                shutil.copy2(str(wav_file), str(dir_trash / wav_file.name))
-                continue
+    with open(log_keep_path, "w", encoding="utf-8") as log_keep, \
+         open(log_review_path, "w", encoding="utf-8") as log_review, \
+         open(log_trash_path, "w", encoding="utf-8") as log_trash:
 
-            current_emb = get_embedding(verification, wav_file)
+        for wav_file in tqdm(candidates):
+            try:
+                # 提取当前切片的声纹
+                info = torchaudio.info(str(wav_file))
+                duration = info.num_frames / info.sample_rate
+                current_emb = get_embedding(verification, wav_file)
 
-            # 计算相似度 (Cosine Similarity)
-            # score 是一个 tensor，取 .item() 拿数值
-            score = torch.nn.functional.cosine_similarity(target_emb, current_emb, dim=-1).mean().item()
+                # 计算相似度 (Cosine Similarity)
+                # score 是一个 tensor，取 .item() 拿数值
+                score = torch.nn.functional.cosine_similarity(target_emb, current_emb, dim=-1).mean().item()
 
-            # 决策移动
-            if score >= THRESH_KEEP:
-                dest = dir_keep
-            elif score >= THRESH_REVIEW:
-                dest = dir_review
-            else:
-                dest = dir_trash
-            
-            # 复制文件 (保留原始文件名，如果重名则自动处理)
-            shutil.copy2(str(wav_file), str(dest / wav_file.name))
-            
-            # (可选) 打印调试信息，看分数分布
-            # print(f"{wav_file.name}: {score:.4f} -> {dest.name}")
+                # 决策移动
+                if duration < 0.5:
+                    # 太短片段直接归类为 Trash，但仍记录分数
+                    dest = dir_trash
+                    current_log = log_trash
+                elif score >= THRESH_KEEP:
+                    dest = dir_keep
+                    current_log = log_keep
+                elif score >= THRESH_REVIEW:
+                    dest = dir_review
+                    current_log = log_review
+                else:
+                    dest = dir_trash
+                    current_log = log_trash
 
-        except Exception as e:
-            print(f"处理出错 {wav_file.name}: {e}")
-            # 出错的文件扔进 Review
-            shutil.copy2(str(wav_file), str(dir_review / wav_file.name))
+                # 复制文件 (保留原始文件名，如果重名则自动处理)
+                shutil.copy2(str(wav_file), str(dest / wav_file.name))
+
+                # 记录日志：文件名字: 分数
+                write_log(current_log, wav_file.name, score)
+
+            except Exception as e:
+                print(f"处理出错 {wav_file.name}: {e}")
+                # 出错的文件扔进 Review，并记录为 NaN 分数
+                shutil.copy2(str(wav_file), str(dir_review / wav_file.name))
+                write_log(log_review, wav_file.name, float("nan"))
 
     print("-" * 50)
     print("筛选完成！统计结果：")
